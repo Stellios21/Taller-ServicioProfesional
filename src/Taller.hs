@@ -11,6 +11,7 @@ import Graphics.UI.Gtk.Gdk.Pixbuf
 import Graphics.UI.Gtk.General.CssProvider (cssProviderLoadFromPath, cssProviderNew)
 import Graphics.UI.Gtk.Gdk.Screen (screenGetDefault, screenGetRootWindow)
 import Graphics.UI.Gtk.Abstract.Widget (widgetGetStyleContext)
+import Graphics.UI.Gtk.Gdk.Events (eventButton)
 import Graphics.UI.Gtk.Gdk.GLContext
 import Graphics.UI.Gtk.Types
 
@@ -25,7 +26,7 @@ import qualified Data.Set as Set
 import qualified Data.Map as Map
 import Data.Maybe (fromMaybe)
 import Control.Concurrent (forkIO, threadDelay)
-import Graphics.UI.Gtk.Gdk.Events (eventButton)
+
 
 import qualified GI.Gtk as Gtk
 import qualified GI.Gdk as Gdk
@@ -34,6 +35,7 @@ import Graphic
 import Histogram
 import AgentWindow
 import AStar
+import Agent
 
 
 type Position = (Double, Double)
@@ -94,13 +96,23 @@ main = do
   -- ######### GRAFICO DE AGENTES #########
   agentBox <- vBoxNew False 0  
 
-  agentPosRef <- newIORef (100, 30)  -- Posición inicial del agente 210 80
-  agentPosRef2 <- newIORef (240, 80)
-  let obstacles = [(230, 20, 50, 30, "M1"), (150, 20, 50, 30, "M2"), (150, 100, 50, 30, "M3")] -- x y w h Definición de obstáculos
-      targetPos = (230, 150) -- Posición objetivo
+  pos1 <- newIORef (210, 80)
+  pos2 <- newIORef (240, 80)
+  pos3 <- newIORef (240, 80)
+  pos4 <- newIORef (240, 80)
+
+  let agents = [ 
+              Agente 1 True 10 pos1
+            , Agente 2 False 10 pos2
+            , Agente 3 False 5 pos2
+            , Agente 4 False 10 pos2
+            ]
+
+      obstacles = [(230, 20, 50, 30, "M1"), (150, 20, 50, 30, "M2"), (150, 100, 50, 30, "M3")] -- x y w h Definición de obstáculos
+
 
   widgetModifyBg paintArea StateNormal (Color 65535 65535 65535)
-  on paintArea draw $ drawAgentAreaHandler adjustment paintArea agentPosRef obstacles  
+  on paintArea draw $ drawAgentAreaHandler adjustment paintArea agents obstacles  
   onValueChanged adjustment (valueChangedHandler paintArea)
 
   widgetSetSizeRequest paintArea 425 300
@@ -120,25 +132,16 @@ main = do
   columnBeginBox3 <- vBoxNew False 0
   columnBeginBox4 <- vBoxNew False 0
 
+
   startButton <- buttonNewWithLabel "Start"
   
+  let targetPos = (230, 150) -- Posición objetivo
+
   on startButton buttonActivated $ do
-    currentPos <- readIORef agentPosRef
-    case aStar currentPos targetPos obstacles of
-      Just path -> do
-        -- Temporizador para actualizar la posición del agente
-        let updatePosition (x, y) (tx, ty) = 
-              let dx = if x < tx then 1 else if x > tx then -1 else 0
-                  dy = if y < ty then 1 else if y > ty then -1 else 0
-              in (x + dx, y + dy)
-        let moveAgent [] = return ()
-            moveAgent (pos:ps) = do
-              writeIORef agentPosRef pos
-              postGUIAsync $ widgetQueueDraw paintArea
-              threadDelay 50000
-              moveAgent ps
-        forkIO (moveAgent path) >> return ()
-      Nothing -> putStrLn "No path found"
+    forM_ agents $ \agent -> do
+      forkIO $ do
+        moverAgente adjustment paintArea agent targetPos obstacles
+        
 
   stopButton <- buttonNewWithLabel "Stop"
   

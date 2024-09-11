@@ -12,9 +12,10 @@ module AgentWindow where
 
     import Data.IORef
 
+    import AStar
+    import Agent
 
-    type Position = (Double, Double)
-    type Obstacle = (Double, Double, Double, Double, String) -- (x, y, width, height)
+
 
     -- Dibuja los items de la izquierda
     drawShapes :: Render ()
@@ -62,15 +63,6 @@ module AgentWindow where
         RendCairo.rectangle 70 10 320 240
         stroke
 
-        -- Agentes
-        setSourceRGB 1.0 0.0 0.0
-        arc 210 80 10 0 (2 * pi)
-        fill
-
-        setSourceRGB 0.0 0.0 1.0
-        arc 240 80 10 0 (2 * pi)
-        fill
-
         -- Almacén
         RendCairo.rectangle 250 160 100 50
         stroke
@@ -95,7 +87,7 @@ module AgentWindow where
         showText "R3"
 
 
-    -- Dibuja los obstáculos (máquinas) ##
+    -- Dibuja los obstáculos (máquinas)
     drawObstacles :: [Obstacle] -> Render ()
     drawObstacles obstacles = do
         forM_ obstacles $ \(x, y, w, h, s) -> do
@@ -105,37 +97,22 @@ module AgentWindow where
             stroke
             
             setSourceRGB 0.0 0.0 0.0
-            moveTo (x+15) (y+20)
+            moveTo (x + 15) (y + 20)
             showText s
 
 
-    -- Dibuja el agente en su posición actual
-    drawAgent :: Position -> Render ()
-    drawAgent (x, y) = do
-        setSourceRGB 1.0 0.0 0.0 -- Rojo
-        arc x y 10 0 (2 * pi)
-        fill
 
-        --setSourceRGB 0.0 0.0 1.0
-        --arc 240 80 10 0 (2 * pi)
-        --fill
-
-    -- Dibuja la escena completa (obstáculos y agente)
-    drawScene :: IORef Position -> [Obstacle] -> Render ()
-    drawScene agentPosRef obstacles = do
-        drawObstacles obstacles
-        pos <- liftIO $ readIORef agentPosRef
-        drawAgent pos
-
-
-    drawAgentAreaHandler :: Adjustment -> DrawingArea -> IORef Position -> [Obstacle] -> Render ()
-    drawAgentAreaHandler _ drawingArea agentPosRef obstacles = do
-        -- Dibuja los shapes
+    drawAgentAreaHandler :: Adjustment -> DrawingArea -> [Agente] -> [Obstacle] -> Render ()
+    drawAgentAreaHandler _ drawingArea agents obstacles = do
         drawShapes
-        -- Dibuja el plano
+        
         drawFloorPlan
 
-        drawScene agentPosRef obstacles
+        drawObstacles obstacles
+
+        forM_ agents $ \agent -> do
+            drawAgent agent
+        
 
 
     valueChangedHandler :: DrawingArea -> IO ()
