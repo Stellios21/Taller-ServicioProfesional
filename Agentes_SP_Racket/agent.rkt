@@ -43,13 +43,121 @@
     ; Variables internas
     (define energia (box energia-inicial))
     ;(define energiaMaxima energia-inicial)
-    (define energiaMaxima 250)
-    (define posicion (box posicion-inicial))
+    (define energiaMaxima 250) ;Para pruebas
     (define areaVision (box area-vision))
+    
+    (define posicion (box posicion-inicial))
     (define orientacion (box (random 360)))
-    (define lista-objetos (box '()))
     (define estado (box (new sin-evento%)))
+
+    ; Conocimiento momentaneo
+    (define lista-objetos (box '()))
     (define objetivo (box '()))
+    (define enObjetivo (box '()))
+    (define lista-acciones (box '()))
+    (define lista-parametros (box '()))
+
+    ; Archivo de conocimiento del agente
+    (define conocimiento-file (open-output-file (format "agente_~a.txt" id) #:exists 'append))
+
+    ;; Escribir el evento "Hambre" al crear el archivo
+    (fprintf conocimiento-file "* Evento Hambre\n")
+    (flush-output conocimiento-file)
+
+
+    ;; Función para verificar si un evento tiene conocimiento asociado
+    (define/public (evento-tiene-conocimiento? nombre-evento)
+      (let* ([file-path (format "agente_~a.txt" id)]
+             [file-content (file->lines file-path)]
+             [evento-index (index-where file-content
+                                        (λ (line) (string-contains? line (format "* Evento ~a" nombre-evento))))])
+        (if evento-index
+            (begin
+              ;; Verificar si hay un renglón posterior y si tiene contenido
+              (if (< (+ evento-index 1) (length file-content))
+                  (let ([renglon-posterior (list-ref file-content (+ evento-index 1))])
+                    (not (string=? renglon-posterior ""))) ; Devuelve #t si hay contenido
+                  #f)) ; Si no hay renglón posterior, se considera vacío
+            (begin
+              (printf "No se encontró el evento ~a.\n" nombre-evento)
+              #f)))) ; No se encontró el evento
+    
+
+    ;; Función para escribir en el archivo de conocimiento
+    (define/public (escribir-conocimiento tipo contenido)
+      (fprintf conocimiento-file "~a ~a\n" tipo contenido)
+      (flush-output conocimiento-file))
+
+    ;; Función para cerrar el archivo de conocimiento
+    (define/public (cerrar-conocimiento)
+      (close-output-port conocimiento-file))
+
+    ;; Función para registrar un evento
+    (define/public (registrar-evento nombre-evento)
+      (escribir-conocimiento "* Evento" nombre-evento))
+
+    ;; Función para registrar parámetros de un evento
+    (define/public (registrar-parametros evento parametros)
+      (escribir-conocimiento "() Parámetros" (format "~a: ~a" evento parametros)))
+
+    ;; Función para registrar acciones realizadas
+    (define/public (registrar-acciones evento acciones)
+      (escribir-conocimiento ">> Acciones" (format "~a: ~a" evento acciones)))
+
+    ;; Función para registrar valores obtenidos
+    (define/public (registrar-valores evento valores)
+      (escribir-conocimiento "++ Valores" (format "~a: ~a" evento valores)))
+
+
+    (define/public (registrarAccion accion)
+      (set-box! lista-acciones (cons accion (unbox lista-acciones)))
+      (printf "Agente ~a ha registrado la accion.\n" id)
+      )
+
+    (define/public (registrarParametro parametro)
+      (set-box! lista-parametros (cons parametro (unbox lista-parametros)))
+      (printf "Agente ~a ha registrado el parametro.\n" id)
+      )
+
+    ;; Función para buscar un evento y registrar conocimiento relacionado
+    (define/public (registrar-conocimiento nombre-evento)
+      (let* ([acciones (unbox lista-acciones)]
+             [parametros (unbox lista-parametros)]
+             [file-path (format "agente_~a.txt" id)]
+             [file-content (file->lines file-path)]
+             [evento-index (index-where file-content
+                                        (λ (line) (string-contains? line (format "* Evento ~a" nombre-evento))))])
+        (if evento-index
+            (begin
+              ;; Cerrar el archivo actual para reabrirlo en modo append
+              (close-output-port conocimiento-file)
+              ;; Reabrir el archivo en modo append para escribir después del evento
+              (set! conocimiento-file (open-output-file file-path #:exists 'append))
+              ;; Posicionar el cursor al final del archivo
+              (file-position conocimiento-file (file-size file-path))
+              
+              ;; Registrar parámetros y acciones relacionadas con el evento
+              (cond
+                [(string=? "comida" (first acciones))
+                 (escribir-conocimiento "()" "ZonaDeRecarga")]
+                )
+
+              ;; Registrar cada acción en el archivo
+              (for-each (λ (accion)
+                          (escribir-conocimiento ">>" (format "~a" accion)))
+                        acciones)
+
+              (for-each (λ (param)
+                          (escribir-conocimiento "()" (format "~a" param)))
+                        parametros)
+
+
+              (printf "Agente ~a: El evento ~a se ha registrado correctamente.\n" id nombre-evento)
+              )
+
+            ;; Si no se encuentra el evento, devolver #f
+            (printf "Agente ~a: No se encontró el evento ~a.\n" id nombre-evento))))
+
 
     
     ;; Dibujar agente
@@ -78,7 +186,7 @@
             
     ;; ### ACCIONES ###
 
-;; Función para verificar colisión con una pared
+    ;; Función para verificar colisión con una pared
     (define/public (mover-adelante dc objects)
       (let* ([orientacionAnterior (unbox orientacion)]
              [rad (/ (* (unbox orientacion) pi) 180)]
@@ -200,16 +308,24 @@
              [(and (colision? nuevaPosicion object) (isMachine? object))
               (begin
                 (printf "Agente ~a: Llegó a la máquina ~a.\n" id (send object obtener-id))
-                (send this registrarObjeto object)
+                (if (objetoRegistrado? object registrados)
+                    (printf "Agente ~a: Máquina ~a ya esta registrada\n" id (send object obtener-id))
+                    (send this registrarObjeto object))
+
+                (set-box! enObjetivo (list object)) ; Asegurar que enObjetivo sea una lista
                 (set-box! objetivo (remove object (unbox objetivo)))
-                (eliminar-objeto object objects) ; Eliminar objeto de la lista
+                (eliminar-objeto object objects)
                 (mover-fuera-del-objeto pos object))]
 
              ;; Llega a una zona de recarga
              [(is-in-recharge-zone nuevaPosicion object)
               (begin
                 (printf "Agente ~a: Llegó a la zona de recarga ~a.\n" id (send object obtener-id))
-                (send this registrarObjeto object)
+                (if (objetoRegistrado? object registrados)
+                    (printf "Agente ~a: Zona de Recarga ~a ya esta registrada\n" id (send object obtener-id))
+                    (send this registrarObjeto object))
+
+                (set-box! enObjetivo (list object)) ; Asegurar que enObjetivo sea una lista
                 (set-box! objetivo (remove object (unbox objetivo)))
                 (eliminar-objeto object objects))]
 
@@ -217,8 +333,7 @@
              [else
               (if (member object registrados)
                   (printf "Agente ~a: Moviéndose hacia ~a ~a.\n" id (send object obtener-tipo) (send object obtener-id))
-                  (printf "Agente ~a: Moviéndose hacia ~a.\n" id (send object obtener-tipo))
-                  )
+                  (printf "Agente ~a: Moviéndose hacia ~a.\n" id (send object obtener-tipo)))
               ])])))
 
 
@@ -338,22 +453,23 @@
 
 
     
-    (define/public (comer)
-      (let* ([energia-actual (unbox energia)]
-             [nueva-energia (min (+ energia-actual 50) energiaMaxima)])
-        (set-box! energia nueva-energia)
-        (printf "Agente ~a: Recargó energía. Energía actual: ~a\n" id nueva-energia)
-        (if (>= nueva-energia energiaMaxima)
-            (begin
-              (printf "Agente ~a: Energía completamente recargada\n" id)
-              (set-box! estado sin-evento%)
+    (define/public (comer object)
+      (if (isRechargeZone? object)
+          (let* ([energia-actual (unbox energia)]
+                 [nueva-energia (min (+ energia-actual 50) energiaMaxima)])
+            (set-box! energia nueva-energia)
+            (printf "Agente ~a: Recargó energía. Energía actual: ~a\n" id nueva-energia)
+            (if (>= nueva-energia energiaMaxima)
+                (begin
+                  (printf "Agente ~a: Energía completamente recargada\n" id)
+                  (set-box! estado sin-evento%)
+                  1)
+                (begin
+                  (printf "Agente ~a: Energía recargada parcialmente\n" id)
+                  1)
+                )
             )
-            (begin
-              (printf "Agente ~a: Energía recargada parcialmente\n" id)
-            )
-          )
-        )
-      )
+          0))
 
     
     
@@ -369,27 +485,49 @@
       (let ([energiaActual (unbox energia)]
             [estadoAgente (unbox estado)]
             [object (if (empty? (unbox objetivo))
-                  '() ; Si la lista está vacía, evita el error
-                  (first (unbox objetivo)))])
+                        '() ; Si la lista está vacía, evita el error
+                        (first (unbox objetivo)))]
+            [nearObject (if (empty? (unbox enObjetivo))
+                            '() ; Si la lista está vacía, evita el error
+                            (first (unbox enObjetivo)))]
+            )
         (cond
           [(<= energiaActual 0)
            (send this bucle-principal dc objects)
           ]
 
-          [(is-a? estadoAgente evento-activo%)
-           (printf "Agente ~a: Continuando en estado Hambre.\n" id)
-           (if (empty? object)
-               (send this realizar-evento-hambre dc objects)
-               (send this mover-hacia-objeto dc object objects))
-          ]
+          [(or (< energiaActual umbral-hambre) (is-a? estadoAgente evento-activo%))
+           (if (is-a? estadoAgente evento-activo%)
+               (printf "Agente ~a: Continuando en estado Hambre.\n" id)
+               (begin
+                 (printf "Agente ~a: Cambiando estado a Hambre.\n" id)
+                 (set-box! estado (crear-evento-hambre))
+               ))
+           
+           (if (evento-tiene-conocimiento? "Hambre")
+               (send this menu-acciones dc objects "Hambre")
 
-          [(< energiaActual umbral-hambre)
-           (printf "Agente ~a: Cambiando estado a Hambre.\n" id)
-           (set-box! estado (crear-evento-hambre))
-           (if (empty? object)
-               (send this realizar-evento-hambre dc objects)
-               (send this mover-hacia-objeto dc object objects))
-          ]
+               (if (empty? object)
+                   (if (empty? nearObject)
+                       (send this explorar dc objects)
+                       (begin
+                         (printf "Hola3\n")
+                         (send this interactuar nearObject)
+                         (printf "Hola4\n")
+                         (let ([nuevaEnergiaActual (unbox energia)])
+                         (if (> nuevaEnergiaActual umbral-hambre)
+                             (begin
+                               (registrar-conocimiento "Hambre")
+                               (set-box! enObjetivo (remove nearObject (unbox enObjetivo)))
+                               )
+                             (begin
+                               (printf "Agente ~a: Aún necesita realizar algo para salir del evento.\n" id)
+                               (set-box! enObjetivo (remove nearObject (unbox enObjetivo)))
+                               )
+                             ))))
+                   (send this mover-hacia-objeto dc object objects)
+                   ))
+           ]
           
           [else
            (printf "Agente ~a: Explorando.\n" id)
@@ -402,6 +540,180 @@
     )
 
     
+    (define/public (menu-acciones dc objects nombre-evento)
+      (let* ([conocimiento (send this leer-conocimiento-evento nombre-evento)]
+             [acciones (first conocimiento)]
+             [params (second conocimiento)]
+             [object (if (empty? (unbox objetivo))
+                        '() ; Si la lista está vacía, evita el error
+                        (first (unbox objetivo)))]
+             [nearObject (if (empty? (unbox enObjetivo))
+                            '() ; Si la lista está vacía, evita el error
+                            (first (unbox enObjetivo)))])
+
+        (for ([accion acciones] [param params])
+          (cond
+            [(equal? accion "comer")
+             (printf "Hola10\n")
+             (if (empty? object)
+                 (if (empty? nearObject)
+                     (begin
+                       (printf "Hola11\n")
+                       (let ([best-obj (send this bestObject param)])
+                         (when best-obj
+                           (set-box! objetivo (list best-obj)) ; Almacena el objeto DIRECTAMENTE
+                           (printf "Hola12\n")
+                           ;; Asegúrate de pasar el OBJETO, no la lista
+                           (send this mover-hacia-objeto dc best-obj objects)
+                           ))
+                       )
+                     (begin
+                       (printf "Hola13\n")
+                       (send this comer nearObject)
+                       (printf "Hola14\n")
+                       (let ([nuevaEnergiaActual (unbox energia)])
+                         (if (> nuevaEnergiaActual umbral-hambre)
+                             (set-box! enObjetivo (remove nearObject (unbox enObjetivo)))
+                             (printf "Agente ~a: Aún necesita seguir comiendo.\n" id)
+                             ))
+                      )
+                     )
+                 (begin
+                   (printf "Hola15\n")
+                   (send this mover-hacia-objeto dc object objects)
+                 )
+                 )]
+            ))
+      ))
+
+
+    (define/public (leer-conocimiento-evento nombre-evento)
+      (let* ([file-path (format "agente_~a.txt" id)])
+        (let* ([file-content (file->lines file-path)])
+          (let loop ([lines file-content]
+                     [in-event? #f]
+                     [acciones '()]
+                     [params '()])
+            (cond
+              [(empty? lines)
+               (list acciones params)]
+              [else
+               (let ([line (first lines)])
+                 (cond
+                   [(string-contains? line (format "* Evento ~a" nombre-evento))
+                    (loop (rest lines) #t acciones params)]
+
+                   [(and in-event? (string-contains? line ">>"))
+                    (let ([accion (substring line 3)])
+                      (loop (rest lines) in-event? (cons accion acciones) params))]
+
+                   [(and in-event? (string-contains? line "()"))
+                    (let ([param (substring line 3)])
+                      (loop (rest lines) in-event? acciones (cons param params)))]
+
+                   [(and in-event? (string-prefix? line "* Evento"))
+                    (printf "\nAcciones: ~a \n" acciones)
+                    (printf "\nParams: ~a \n" params)
+                    (list acciones params)]
+
+                   [else
+                    (loop (rest lines) in-event? acciones params)]
+                   ))]
+              ))
+          )))
+
+
+    ;Funcion para determinar el tipo de objeto mas cercano en base al parametro
+    (define/public (bestObject param)
+      (cond
+        [(equal? param "Maquina")
+         (send this bestMachine)]
+        [(equal? param "Zona de Recarga")
+         (send this bestRechargeZone)]
+        )
+      )
+
+    
+    (define/public (bestRechargeZone)
+      (let* ([pos (unbox posicion)] ; Posición actual del agente
+             [registrados (unbox lista-objetos)]
+             [rechargeZones (filter isRechargeZone? registrados)]
+             [distancia (lambda (p1 p2)
+                          (sqrt (+ (sqr (- (first p1) (first p2)))
+                                   (sqr (- (second p1) (second p2))))))])
+    
+        (if (null? rechargeZones)
+            #f ; No hay zonas de recarga disponibles
+            (argmin (lambda (z) (distancia pos (centro-zona z))) rechargeZones))))
+
+
+    (define/public (bestMachine)
+      (let* ([pos (unbox posicion)] ; Posición actual del agente
+             [registrados (unbox lista-objetos)]
+             [machines (filter isMachine? registrados)]
+             [distancia (lambda (p1 p2)
+                          (sqrt (+ (sqr (- (first p1) (first p2)))
+                                   (sqr (- (second p1) (second p2))))))])
+    
+        (if (null? machines)
+            #f ; No hay maquinas disponibles
+            (argmin (lambda (z) (distancia pos (centro-zona z))) machines))))
+
+    
+    ;; Función para obtener el centro de una zona de recarga
+    (define (centro-zona zona)
+      (let* ([objpos (send zona obtener-posicion)]
+             [ox (first objpos)]
+             [oy (second objpos)]
+             [ow (third objpos)]
+             [oh (fourth objpos)])
+        (list (+ ox (/ ow 2)) (+ oy (/ oh 2))))) ; centro (x + w/2, y + h/2)
+
+    
+    (define (argmin f lst)
+      (foldl (lambda (x best)
+               (if (< (f x) (f best)) x best))
+             (first lst)
+             (rest lst)))
+
+
+    
+    ;; Función para interactuar con un objeto
+    (define/public (interactuar objeto)
+      (let ([contador-positivos 0])
+        (for ([i 5]
+              #:break (>= contador-positivos 3))
+          (let* ([resultado1 (send this comer objeto)]) ;lista de acciones disponibles
+
+            (if (evaluar-accion-positiva? resultado1)
+                (begin
+                  (printf "Agente ~a: Interacción positiva con ~a (Intento ~a).\n" id (send objeto obtener-id) (+ i 1))
+                  (set! contador-positivos (+ contador-positivos 1))
+                  (when (>= contador-positivos 3)
+                    (printf "Agente ~a: La interacción con ~a es una certeza.\n" id (send objeto obtener-id))
+                    (send this registrarAccion "comer")
+                    (send this registrarParametro (send objeto obtener-tipo))
+                    ))
+                (printf "Agente ~a: Interacción negativa con ~a (Intento ~a).\n" id (send objeto obtener-id) (+ i 1))
+                )))
+
+        (when (< contador-positivos 3)
+          (printf "Agente ~a: No se confirmó la certeza de la interacción con ~a.\n" id (send objeto obtener-id)))
+        ))
+
+    
+    ;; Función para evaluar si una acción es positiva
+    (define (evaluar-accion-positiva? resultado)
+      ;; Aquí puedes definir la lógica para determinar si el resultado es positivo
+      (> resultado 0))
+
+;    (define/public (observar-agentes)
+      ;Verifica si hay agente en rango de vision
+      ;Si subio salud que el agente pase su conocimiento al agente actual
+         ;Funcion para pasar el conocimiento del evento actual de un agente
+      ;Si no, continua con su procesamiento
+;      )
+
     
     ;; ###EVENTOS###
     
@@ -417,7 +729,7 @@
                  (let* ([objeto-destino (first (filter isRechargeZone? registrados))])
                    (cond
                      [(is-in-recharge-zone (unbox posicion) objeto-destino)
-                      (send this comer)]
+                      (send this comer objeto-destino)]
                      [else
                       (begin
                         (set-box! objetivo (cons objeto-destino (unbox objetivo)))
@@ -429,7 +741,7 @@
                             ;; Caso: Llega a una zona de recarga
                             [(and (not (empty? colision))
                                   (is-in-recharge-zone nuevaPosicion objeto-destino))
-                             (send this comer)]
+                             (send this comer objeto-destino)]
                             )))])
                ))
                (begin
@@ -461,12 +773,12 @@
            (send this mover-adelante dc objects)
            ]
 
-           ;; Si todos los objetos en rango ya están registrados
+          ;; Si todos los objetos en rango ya están registrados
           [(and (not (empty? objetosEnRango))
                 (every? (λ (object) (objetoRegistrado? object registrados)) objetosEnRango))
            (printf "Agente ~a: Todos los objetos en rango ya están registrados, avanzando.\n" id)
            (send this mover-adelante dc objects)]
-      
+
           ;; Si hay objetos en rango
           [else
            (for-each
@@ -498,10 +810,10 @@
         (set-box! energia nuevaEnergia) ; Actualizar la energía en la caja
         (if (<= nuevaEnergia 0) ; Si la energía es 0 o menos
             (begin
-              (printf "Agente ~a ha muerto por falta de energia.\n" id)
+              (printf "Agente ~a: Ha muerto por falta de energia.\n" id)
               (set-box! estado (new sin-evento%)) ; Cambiar estado del agente
             ) 
-            (printf "Agente ~a tiene ~a de energía.\n" id nuevaEnergia)
+            (printf "Agente ~a: Tiene ~a de energía.\n" id nuevaEnergia)
         )
       )
     )
@@ -577,6 +889,8 @@
       (set-box! lista-objetos (cons objeto (unbox lista-objetos)))
       (printf "Agente ~a ha registrado el objeto ~a.\n" id (send objeto obtener-id))
     )
+
+
 
     (define (isMachine? object)
       (equal? (send object obtener-tipo) "Maquina"))
