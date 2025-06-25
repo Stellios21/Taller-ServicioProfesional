@@ -3,7 +3,12 @@
 (require "rechargeZone.rkt")
 (require "machine.rkt")
 
-;; #### INFORMACIÓN BASE ####
+;; Exportacion del modulo 
+(provide agent%)
+
+
+
+;; --------------- FUNCIONES Y VARIABLES GLOBALES ---------------
 
 ;; Clase para el estado "sin-evento"
 (define sin-evento%
@@ -30,14 +35,14 @@
 
 
 
-(provide agent%)
 
-;; Clase Agente
+;; --------------- CLASE AGENTE ---------------
 (define agent%
   (class object%
 
     ;; Constructor
     (init-field id is-red energia-inicial posicion-inicial area-vision)
+
     (super-new)
 
     ; Variables internas
@@ -65,6 +70,9 @@
     (flush-output conocimiento-file)
 
 
+    
+    ;; ---------- FUNCIONES BASE PARA EL CONOCIMIENTO ---------- 
+
     ;; Función para verificar si un evento tiene conocimiento asociado
     (define/public (evento-tiene-conocimiento? nombre-evento)
       (let* ([file-path (format "agente_~a.txt" id)]
@@ -88,22 +96,27 @@
       (fprintf conocimiento-file "~a ~a\n" tipo contenido)
       (flush-output conocimiento-file))
 
+    
     ;; Función para cerrar el archivo de conocimiento
     (define/public (cerrar-conocimiento)
       (close-output-port conocimiento-file))
 
+    
     ;; Función para registrar un evento
     (define/public (registrar-evento nombre-evento)
       (escribir-conocimiento "* Evento" nombre-evento))
 
+    
     ;; Función para registrar parámetros de un evento
     (define/public (registrar-parametros evento parametros)
       (escribir-conocimiento "() Parámetros" (format "~a: ~a" evento parametros)))
 
+    
     ;; Función para registrar acciones realizadas
     (define/public (registrar-acciones evento acciones)
       (escribir-conocimiento ">> Acciones" (format "~a: ~a" evento acciones)))
 
+    
     ;; Función para registrar valores obtenidos
     (define/public (registrar-valores evento valores)
       (escribir-conocimiento "++ Valores" (format "~a: ~a" evento valores)))
@@ -158,9 +171,48 @@
             ;; Si no se encuentra el evento, devolver #f
             (printf "Agente ~a: No se encontró el evento ~a.\n" id nombre-evento))))
 
+    
+    (define/public (leer-conocimiento-evento nombre-evento)
+      (let* ([file-path (format "agente_~a.txt" id)])
+        (let* ([file-content (file->lines file-path)])
+          (let loop ([lines file-content]
+                     [in-event? #f]
+                     [acciones '()]
+                     [params '()])
+            (cond
+              [(empty? lines)
+               (list acciones params)]
+              [else
+               (let ([line (first lines)])
+                 (cond
+                   [(string-contains? line (format "* Evento ~a" nombre-evento))
+                    (loop (rest lines) #t acciones params)]
+
+                   [(and in-event? (string-contains? line ">>"))
+                    (let ([accion (substring line 3)])
+                      (loop (rest lines) in-event? (cons accion acciones) params))]
+
+                   [(and in-event? (string-contains? line "()"))
+                    (let ([param (substring line 3)])
+                      (loop (rest lines) in-event? acciones (cons param params)))]
+
+                   [(and in-event? (string-prefix? line "* Evento"))
+                    (printf "\nAcciones: ~a \n" acciones)
+                    (printf "\nParams: ~a \n" params)
+                    (list acciones params)]
+
+                   [else
+                    (loop (rest lines) in-event? acciones params)]
+                   ))]
+              ))
+          )))
+
+
+
 
     
-    ;; Dibujar agente
+    ;; ---------- FUNCIÓN PARA DIBUJAR EL AGENTE ----------
+
     (define/public (dibujar dc)
       (let* ([x (first (unbox posicion))]
              [y (second (unbox posicion))]
@@ -183,66 +235,9 @@
 
 
           
-            
-    ;; ### ACCIONES ###
 
-    ;; Función para verificar colisión con una pared
-    (define/public (mover-adelante dc objects)
-      (let* ([orientacionAnterior (unbox orientacion)]
-             [rad (/ (* (unbox orientacion) pi) 180)]
-             [pos (unbox posicion)]
-             [nuevaPosX (+ (first pos) (* 5 (cos rad)))]
-             [nuevaPosY (+ (second pos) (* 5 (sin rad)))]
-             [nuevaPosicion (list nuevaPosX nuevaPosY)]
-
-             ;; Definir los límites del área de dibujo
-             [limiteIzquierdo 10]
-             [limiteDerecho 350]
-             [limiteSuperior 10]
-             [limiteInferior 270]
-
-             ;; Verificar si la nueva posición está fuera de los límites
-             [fueraDeLimites
-              (or (< nuevaPosX limiteIzquierdo)
-                  (> nuevaPosX limiteDerecho)
-                  (< nuevaPosY limiteSuperior)
-                  (> nuevaPosY limiteInferior))]
-
-             ;; Verificar colisiones con objetos
-             [colision-objeto (findf (λ (obj) (colision? nuevaPosicion obj)) objects)])
-
-        (cond
-          ;; Si la nueva posición está fuera de los límites
-          [fueraDeLimites
-           (begin
-             ;; Ajustar la posición para mantener al agente dentro de los límites
-             (set-box! posicion
-                       (list (min (max nuevaPosX limiteIzquierdo) limiteDerecho)
-                             (min (max nuevaPosY limiteSuperior) limiteInferior)))
-             ;; Cambiar la orientación para evitar que el agente siga moviéndose hacia fuera
-             (set-box! orientacion (+ (+ (random 180) 90) orientacionAnterior))
-             (printf "Agente ~a: Fuera de límites, cambiando orientación.\n" id)
-             ;; Intentar moverse nuevamente
-             (send this mover-adelante dc objects))]
-
-          ;; Si colisiona con un objeto
-          [colision-objeto
-           (begin
-             ;; Cambiar la orientación para evitar la colisión
-             (set-box! orientacion (+ (+ (random 180) 90) orientacionAnterior))
-             (printf "Agente ~a: Colisión con objeto, cambiando orientación.\n" id)
-             ;; Intentar moverse nuevamente
-             (send this mover-adelante dc objects))]
-
-          ;; Movimiento válido
-          [else
-           (begin
-             ;; Actualizar la posición del agente
-             (set-box! posicion nuevaPosicion)
-             (printf "Nueva posición: ~a\n" nuevaPosicion)
-             (printf "Agente ~a: Se movió hacia adelante.\n" id))])))
-
-
+    
+    ;; ---------- ACCIONES ----------
     
     (define/public (mover-hacia-objeto dc object objects)
       (let* ([pos (unbox posicion)]
@@ -336,11 +331,71 @@
                   (printf "Agente ~a: Moviéndose hacia ~a.\n" id (send object obtener-tipo)))
               ])])))
 
+    
+    ;; ---- FUNCIONES AUXILIARES PARA EL MOVIMIENTO --┐
+    
+    ;; Función para verificar colisión con una pared
+    (define/public (mover-adelante dc objects)
+      (let* ([orientacionAnterior (unbox orientacion)]
+             [rad (/ (* (unbox orientacion) pi) 180)]
+             [pos (unbox posicion)]
+             [nuevaPosX (+ (first pos) (* 5 (cos rad)))]
+             [nuevaPosY (+ (second pos) (* 5 (sin rad)))]
+             [nuevaPosicion (list nuevaPosX nuevaPosY)]
+
+             ;; Definir los límites del área de dibujo
+             [limiteIzquierdo 10]
+             [limiteDerecho 350]
+             [limiteSuperior 10]
+             [limiteInferior 270]
+
+             ;; Verificar si la nueva posición está fuera de los límites
+             [fueraDeLimites
+              (or (< nuevaPosX limiteIzquierdo)
+                  (> nuevaPosX limiteDerecho)
+                  (< nuevaPosY limiteSuperior)
+                  (> nuevaPosY limiteInferior))]
+
+             ;; Verificar colisiones con objetos
+             [colision-objeto (findf (λ (obj) (colision? nuevaPosicion obj)) objects)])
+
+        (cond
+          ;; Si la nueva posición está fuera de los límites
+          [fueraDeLimites
+           (begin
+             ;; Ajustar la posición para mantener al agente dentro de los límites
+             (set-box! posicion
+                       (list (min (max nuevaPosX limiteIzquierdo) limiteDerecho)
+                             (min (max nuevaPosY limiteSuperior) limiteInferior)))
+             ;; Cambiar la orientación para evitar que el agente siga moviéndose hacia fuera
+             (set-box! orientacion (+ (+ (random 180) 90) orientacionAnterior))
+             (printf "Agente ~a: Fuera de límites, cambiando orientación.\n" id)
+             ;; Intentar moverse nuevamente
+             (send this mover-adelante dc objects))]
+
+          ;; Si colisiona con un objeto
+          [colision-objeto
+           (begin
+             ;; Cambiar la orientación para evitar la colisión
+             (set-box! orientacion (+ (+ (random 180) 90) orientacionAnterior))
+             (printf "Agente ~a: Colisión con objeto, cambiando orientación.\n" id)
+             ;; Intentar moverse nuevamente
+             (send this mover-adelante dc objects))]
+
+          ;; Movimiento válido
+          [else
+           (begin
+             ;; Actualizar la posición del agente
+             (set-box! posicion nuevaPosicion)
+             (printf "Nueva posición: ~a\n" nuevaPosicion)
+             (printf "Agente ~a: Se movió hacia adelante.\n" id))])))
+
 
     ;; Función para eliminar el objeto de la lista
     (define (eliminar-objeto object objects)
       (set! objects (remove (λ (obj) (equal? obj object)) objects)))
 
+    
     ;; Función para mover fuera del objeto después de registrarlo
     (define (mover-fuera-del-objeto pos object)
       (let* ([objPos (send object obtener-posicion)]
@@ -365,6 +420,7 @@
                 [else pos])])
         (set-box! posicion nuevaPos)))
 
+    
     ;; Función de colisión
     (define (colision? pos obj)
       (let* ([x (first pos)]
@@ -378,8 +434,7 @@
              (<= oy y (+ oy oh)))))
 
 
-
-        ;; Ajustar posición al rodear un objeto
+     ;; Ajustar posición al rodear un objeto
     (define (rodear-objeto pos obj)
       (let* ([objPos (send obj obtener-posicion)]
              [ox (first objPos)]
@@ -415,6 +470,8 @@
              [nx (min (max px ox) (+ ox ow))]
              [ny (min (max py oy) (+ oy oh))])
         (list nx ny)))
+
+    ;; ------------------------------------------------┘
     
 
     (define/public (buscar dc objects)
@@ -447,12 +504,11 @@
                      (set-box! objetivo (cons object (unbox objetivo))) ; Agrega el objeto a la lista de objetivos
                      (send this mover-hacia-objeto dc object objects)
                      (set-box! objetoDetectado (+ (unbox objetoDetectado) 1))]
-                  ))))
+                    ))))
           )
-        ))
+     ))
 
 
-    
     (define/public (comer object)
       (if (isRechargeZone? object)
           (let* ([energia-actual (unbox energia)]
@@ -472,8 +528,10 @@
           0))
 
     
+
+
     
-    ;; ###GESTOR DE EVENTOS###
+    ;; ---------- GESTOR DE EVENTOS ----------
 
     (define/public (bucle-principal dc objects)
       (when (> (unbox energia) 0)
@@ -511,9 +569,9 @@
                    (if (empty? nearObject)
                        (send this explorar dc objects)
                        (begin
-                         (printf "Hola3\n")
+                         ;; DEBUG (printf "Hola3\n")
                          (send this interactuar nearObject)
-                         (printf "Hola4\n")
+                         ;; DEBUG (printf "Hola4\n")
                          (let ([nuevaEnergiaActual (unbox energia)])
                          (if (> nuevaEnergiaActual umbral-hambre)
                              (begin
@@ -554,23 +612,24 @@
         (for ([accion acciones] [param params])
           (cond
             [(equal? accion "comer")
-             (printf "Hola10\n")
+             ;; DEBUG (printf "Hola10\n")
              (if (empty? object)
                  (if (empty? nearObject)
                      (begin
-                       (printf "Hola11\n")
+                       ;; DEBUG (printf "Hola11\n")
                        (let ([best-obj (send this bestObject param)])
                          (when best-obj
                            (set-box! objetivo (list best-obj)) ; Almacena el objeto DIRECTAMENTE
-                           (printf "Hola12\n")
+                           ;;DEBUG (printf "Hola12\n")
+
                            ;; Asegúrate de pasar el OBJETO, no la lista
                            (send this mover-hacia-objeto dc best-obj objects)
                            ))
                        )
                      (begin
-                       (printf "Hola13\n")
+                       ;; DEBUG (printf "Hola13\n")
                        (send this comer nearObject)
-                       (printf "Hola14\n")
+                       ;; DEBUG (printf "Hola14\n")
                        (let ([nuevaEnergiaActual (unbox energia)])
                          (if (> nuevaEnergiaActual umbral-hambre)
                              (set-box! enObjetivo (remove nearObject (unbox enObjetivo)))
@@ -579,7 +638,7 @@
                       )
                      )
                  (begin
-                   (printf "Hola15\n")
+                   ;; DEBUG (printf "Hola15\n")
                    (send this mover-hacia-objeto dc object objects)
                  )
                  )]
@@ -587,40 +646,150 @@
       ))
 
 
-    (define/public (leer-conocimiento-evento nombre-evento)
-      (let* ([file-path (format "agente_~a.txt" id)])
-        (let* ([file-content (file->lines file-path)])
-          (let loop ([lines file-content]
-                     [in-event? #f]
-                     [acciones '()]
-                     [params '()])
-            (cond
-              [(empty? lines)
-               (list acciones params)]
-              [else
-               (let ([line (first lines)])
-                 (cond
-                   [(string-contains? line (format "* Evento ~a" nombre-evento))
-                    (loop (rest lines) #t acciones params)]
 
-                   [(and in-event? (string-contains? line ">>"))
-                    (let ([accion (substring line 3)])
-                      (loop (rest lines) in-event? (cons accion acciones) params))]
 
-                   [(and in-event? (string-contains? line "()"))
-                    (let ([param (substring line 3)])
-                      (loop (rest lines) in-event? acciones (cons param params)))]
+    
+    ;; ---------- EVENTO EXPLORAR ----------
+   
+    (define/public (explorar dc objects)
+      (let* ([pos (unbox posicion)]
+             [vision (unbox areaVision)]
+             [objetosEnRango (filter (λ (object) (enRangoVision pos vision object)) objects)]
+             [registrados (unbox lista-objetos)]
+             [objetoDetectado (box 0)])
 
-                   [(and in-event? (string-prefix? line "* Evento"))
-                    (printf "\nAcciones: ~a \n" acciones)
-                    (printf "\nParams: ~a \n" params)
-                    (list acciones params)]
+        (cond
+          ;; Si no hay objetos en rango
+          [(empty? objetosEnRango)
+           (printf "Agente ~a: Sigue explorando.\n" id)
+           (send this mover-adelante dc objects)]
 
-                   [else
-                    (loop (rest lines) in-event? acciones params)]
-                   ))]
-              ))
-          )))
+          [(= (length registrados) (length objects))
+           (printf "Agente ~a: Ya tiene todos los objetos registrados.\n" id)
+           (send this mover-adelante dc objects)
+           ]
+
+          ;; Si todos los objetos en rango ya están registrados
+          [(and (not (empty? objetosEnRango))
+                (every? (λ (object) (objetoRegistrado? object registrados)) objetosEnRango))
+           (printf "Agente ~a: Todos los objetos en rango ya están registrados, avanzando.\n" id)
+           (send this mover-adelante dc objects)]
+
+          ;; Si hay objetos en rango
+          [else
+           (for-each
+            (λ (object)
+              (if (objetoRegistrado? object registrados)
+                  (printf "Agente ~a: Objeto ya conocido, continuando revisando lista de registrados.\n" id)
+                  (cond
+                    [(= (unbox objetoDetectado) 0)
+                     (printf "Agente ~a: Objeto detectado, caminando hacia objeto.\n" id)
+                     (set-box! objetivo (cons object (unbox objetivo)))
+                     (send this mover-hacia-objeto dc object objects)
+                     (set-box! objetoDetectado (+ (unbox objetoDetectado) 1))]
+                    )
+                  )
+             ) objetosEnRango)]
+          )
+        )
+      )
+
+    
+
+    
+
+    ;; ---------- FUNCIONES AUXILIARES ----------
+
+    (define/public (estado-energia)
+      (unbox energia))
+    
+    (define/public (estado-posicion)
+      (unbox posicion))
+
+    (define (is-in-recharge-zone pos obj)
+      (let* ([x (first pos)]
+             [y (second pos)]
+             [objpos (send obj obtener-posicion)]
+             [ox (first objpos)]
+             [oy (second objpos)]
+             [ow (third objpos)]
+             [oh (fourth objpos)]
+             [os (send obj obtener-tipo)]
+             [agentWidth 10] ; Ajusta esto según el tamaño del agente
+             [agentHeight 10]) ; Ajusta esto según el tamaño del agente
+        (and (<= ox (+ x agentWidth)) ; Borde izquierdo del objeto toca o está dentro del agente
+             (>= (+ ox ow) x)         ; Borde derecho del objeto toca o está dentro del agente
+             (<= oy (+ y agentHeight)) ; Borde superior del objeto toca o está dentro del agente
+             (>= (+ oy oh) y)          ; Borde inferior del objeto toca o está dentro del agente
+             (string=? "Zona de Recarga" os)))) ; Compara exactamente el tipo
+
+    
+    (define/public (reducir-energia)
+      (let* ([energiaActual (unbox energia)]
+             [nuevaEnergia (sub1 energiaActual)]) ; Reducir energía en 1
+        (set-box! energia nuevaEnergia) ; Actualizar la energía en la caja
+        (if (<= nuevaEnergia 0) ; Si la energía es 0 o menos
+            (begin
+              (printf "Agente ~a: Ha muerto por falta de energia.\n" id)
+              (set-box! estado (new sin-evento%)) ; Cambiar estado del agente
+            ) 
+            (printf "Agente ~a: Tiene ~a de energía.\n" id nuevaEnergia)
+        )
+      )
+    )
+    
+
+    (define (enRangoVision pos areaVision obj)
+      (let* ([x (first pos)]
+             [y (second pos)]
+             [radio (/ areaVision 2)]  ; Radio del área de visión
+             [objpos (send obj obtener-posicion)]
+             [ox (first objpos)]
+             [oy (second objpos)]
+             [ow (third objpos)]
+             [oh (fourth objpos)]
+             [esquina-izquierda-superior (list ox oy)]
+             [esquina-derecha-superior (list (+ ox ow) oy)]
+             [esquina-izquierda-inferior (list ox (+ oy oh))]
+             [esquina-derecha-inferior (list (+ ox ow) (+ oy oh))]
+
+             ;; Definir función de distancia dentro del let*
+             [distancia (lambda (p1 p2)
+                          (sqrt (+ (sqr (- (first p1) (first p2)))
+                                   (sqr (- (second p1) (second p2))))))]
+
+             ;; Verificar si alguna esquina está dentro del área de visión
+             [dentro-vision
+              (or (<= (distancia (list x y) esquina-izquierda-superior) radio)
+                  (<= (distancia (list x y) esquina-derecha-superior) radio)
+                  (<= (distancia (list x y) esquina-izquierda-inferior) radio)
+                  (<= (distancia (list x y) esquina-derecha-inferior) radio))])
+        dentro-vision))
+
+    
+    (define (objetoRegistrado? object registrados)
+      (member object registrados))
+
+
+    (define/public (registrarObjeto objeto)
+      (set-box! lista-objetos (cons objeto (unbox lista-objetos)))
+      (printf "Agente ~a ha registrado el objeto ~a.\n" id (send objeto obtener-id))
+    )
+
+
+    (define (isMachine? object)
+      (equal? (send object obtener-tipo) "Maquina"))
+
+    
+    (define (isRechargeZone? object)
+      (equal? (send object obtener-tipo) "Zona de Recarga"))
+
+    
+    (define (every? pred lst)
+      (cond
+        [(empty? lst) #t] ; Si la lista está vacía, todos los elementos cumplen el predicado
+        [(not (pred (first lst))) #f] ; Si el primer elemento no cumple, retorna #f
+        [else (every? pred (rest lst))])) ; Sigue evaluando el resto de la lista
 
 
     ;Funcion para determinar el tipo de objeto mas cercano en base al parametro
@@ -677,7 +846,6 @@
              (rest lst)))
 
 
-    
     ;; Función para interactuar con un objeto
     (define/public (interactuar objeto)
       (let ([contador-positivos 0])
@@ -707,201 +875,13 @@
       ;; Aquí puedes definir la lógica para determinar si el resultado es positivo
       (> resultado 0))
 
-;    (define/public (observar-agentes)
-      ;Verifica si hay agente en rango de vision
-      ;Si subio salud que el agente pase su conocimiento al agente actual
-         ;Funcion para pasar el conocimiento del evento actual de un agente
-      ;Si no, continua con su procesamiento
-;      )
-
     
-    ;; ###EVENTOS###
+    ;    (define/public (observar-agentes)
+    ;Verifica si hay agente en rango de vision
+    ;Si subio salud que el agente pase su conocimiento al agente actual
+    ;Funcion para pasar el conocimiento del evento actual de un agente
+    ;Si no, continua con su procesamiento
+    ;      )
     
-    (define/public (realizar-evento-hambre dc objects)
-      (let ([registrados (unbox lista-objetos)])
-        (cond
-          [(empty? registrados)
-           (printf "Agente ~a: No tiene objetos registrados. Buscando objetos cercanos.\n" id)
-           (send this buscar dc objects)]
-          [else
-           (if (hay-objeto? "Zona de Recarga" registrados)
-               (begin
-                 (let* ([objeto-destino (first (filter isRechargeZone? registrados))])
-                   (cond
-                     [(is-in-recharge-zone (unbox posicion) objeto-destino)
-                      (send this comer objeto-destino)]
-                     [else
-                      (begin
-                        (set-box! objetivo (cons objeto-destino (unbox objetivo)))
-                        (send this mover-hacia-objeto dc objeto-destino objects)
-                        ;; Verifica colisiones
-                        (let* ([nuevaPosicion (unbox posicion)]
-                               [colision (findf (λ (obj) (colision? nuevaPosicion obj)) objects)])
-                          (cond
-                            ;; Caso: Llega a una zona de recarga
-                            [(and (not (empty? colision))
-                                  (is-in-recharge-zone nuevaPosicion objeto-destino))
-                             (send this comer objeto-destino)]
-                            )))])
-               ))
-               (begin
-                 (printf "Agente ~a: No tiene zonas de recarga registradas. Comenzando a buscar\n" id)
-                 (send this buscar dc objects)
-               )
-             )
-           ]
-          )
-        )
-      )
-
-    
-    (define/public (explorar dc objects)
-      (let* ([pos (unbox posicion)]
-             [vision (unbox areaVision)]
-             [objetosEnRango (filter (λ (object) (enRangoVision pos vision object)) objects)]
-             [registrados (unbox lista-objetos)]
-             [objetoDetectado (box 0)])
-
-        (cond
-          ;; Si no hay objetos en rango
-          [(empty? objetosEnRango)
-           (printf "Agente ~a: Sigue explorando.\n" id)
-           (send this mover-adelante dc objects)]
-
-          [(= (length registrados) (length objects))
-           (printf "Agente ~a: Ya tiene todos los objetos registrados.\n" id)
-           (send this mover-adelante dc objects)
-           ]
-
-          ;; Si todos los objetos en rango ya están registrados
-          [(and (not (empty? objetosEnRango))
-                (every? (λ (object) (objetoRegistrado? object registrados)) objetosEnRango))
-           (printf "Agente ~a: Todos los objetos en rango ya están registrados, avanzando.\n" id)
-           (send this mover-adelante dc objects)]
-
-          ;; Si hay objetos en rango
-          [else
-           (for-each
-            (λ (object)
-              (if (objetoRegistrado? object registrados)
-                  (printf "Agente ~a: Objeto ya conocido, continuando revisando lista de registrados.\n" id)
-                  (cond
-                    [(= (unbox objetoDetectado) 0)
-                     (printf "Agente ~a: Objeto detectado, caminando hacia objeto.\n" id)
-                     (set-box! objetivo (cons object (unbox objetivo)))
-                     (send this mover-hacia-objeto dc object objects)
-                     (set-box! objetoDetectado (+ (unbox objetoDetectado) 1))]
-                    )
-                  )
-             ) objetosEnRango)]
-          )
-        )
-      )
-
-    
-
-    
-
-    ;; ###FUNCIONES AUXILIARES###
-
-    (define/public (reducir-energia)
-      (let* ([energiaActual (unbox energia)]
-             [nuevaEnergia (sub1 energiaActual)]) ; Reducir energía en 1
-        (set-box! energia nuevaEnergia) ; Actualizar la energía en la caja
-        (if (<= nuevaEnergia 0) ; Si la energía es 0 o menos
-            (begin
-              (printf "Agente ~a: Ha muerto por falta de energia.\n" id)
-              (set-box! estado (new sin-evento%)) ; Cambiar estado del agente
-            ) 
-            (printf "Agente ~a: Tiene ~a de energía.\n" id nuevaEnergia)
-        )
-      )
-    )
-
-
-    (define (hay-objeto? tipo lista-objetos)
-      (ormap (λ (objeto) (equal? (send objeto obtener-tipo) tipo)) lista-objetos))
-
-    
-
-
-    (define (is-in-recharge-zone pos obj)
-      (let* ([x (first pos)]
-             [y (second pos)]
-             [objpos (send obj obtener-posicion)]
-             [ox (first objpos)]
-             [oy (second objpos)]
-             [ow (third objpos)]
-             [oh (fourth objpos)]
-             [os (send obj obtener-tipo)]
-             [agentWidth 10] ; Ajusta esto según el tamaño del agente
-             [agentHeight 10]) ; Ajusta esto según el tamaño del agente
-        (and (<= ox (+ x agentWidth)) ; Borde izquierdo del objeto toca o está dentro del agente
-             (>= (+ ox ow) x)         ; Borde derecho del objeto toca o está dentro del agente
-             (<= oy (+ y agentHeight)) ; Borde superior del objeto toca o está dentro del agente
-             (>= (+ oy oh) y)          ; Borde inferior del objeto toca o está dentro del agente
-             (string=? "Zona de Recarga" os)))) ; Compara exactamente el tipo
-    
-
-    (define (enRangoVision pos areaVision obj)
-      (let* ([x (first pos)]
-             [y (second pos)]
-             [radio (/ areaVision 2)]  ; Radio del área de visión
-             [objpos (send obj obtener-posicion)]
-             [ox (first objpos)]
-             [oy (second objpos)]
-             [ow (third objpos)]
-             [oh (fourth objpos)]
-             [esquina-izquierda-superior (list ox oy)]
-             [esquina-derecha-superior (list (+ ox ow) oy)]
-             [esquina-izquierda-inferior (list ox (+ oy oh))]
-             [esquina-derecha-inferior (list (+ ox ow) (+ oy oh))]
-
-             ;; Definir función de distancia dentro del let*
-             [distancia (lambda (p1 p2)
-                          (sqrt (+ (sqr (- (first p1) (first p2)))
-                                   (sqr (- (second p1) (second p2))))))]
-
-             ;; Verificar si alguna esquina está dentro del área de visión
-             [dentro-vision
-              (or (<= (distancia (list x y) esquina-izquierda-superior) radio)
-                  (<= (distancia (list x y) esquina-derecha-superior) radio)
-                  (<= (distancia (list x y) esquina-izquierda-inferior) radio)
-                  (<= (distancia (list x y) esquina-derecha-inferior) radio))])
-        dentro-vision))
-
-
-
-
-    
-    (define (objetoRegistrado? object registrados)
-      (member object registrados))
-
-
-    (define/public (estado-energia)
-      (unbox energia))
-    
-    (define/public (estado-posicion)
-      (unbox posicion))
-
-
-    (define/public (registrarObjeto objeto)
-      (set-box! lista-objetos (cons objeto (unbox lista-objetos)))
-      (printf "Agente ~a ha registrado el objeto ~a.\n" id (send objeto obtener-id))
-    )
-
-
-
-    (define (isMachine? object)
-      (equal? (send object obtener-tipo) "Maquina"))
-
-    (define (isRechargeZone? object)
-      (equal? (send object obtener-tipo) "Zona de Recarga"))
-
-    (define (every? pred lst)
-      (cond
-        [(empty? lst) #t] ; Si la lista está vacía, todos los elementos cumplen el predicado
-        [(not (pred (first lst))) #f] ; Si el primer elemento no cumple, retorna #f
-        [else (every? pred (rest lst))])) ; Sigue evaluando el resto de la lista
-    )
+    )  
   )
